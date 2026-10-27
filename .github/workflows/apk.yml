@@ -1,0 +1,79 @@
+name: Build APK
+
+on:
+  workflow_dispatch:          # run by hand: Actions tab > Build APK > Run workflow
+  push:
+    branches: [main, master]
+    tags: ["v*"]              # a tag like v1.0.0 also publishes a GitHub Release with the APK
+
+concurrency:
+  group: apk-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write             # only needed to attach the APK to a Release on tags
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      # Installs Gradle 8.9 (this project ships no gradlew) and caches dependencies between runs.
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 8.9
+
+      # The release build is signed with the standard debug key so the APK installs directly.
+      - name: Create the signing key
+        run: |
+          mkdir -p ~/.android
+          if [ ! -f ~/.android/debug.keystore ]; then
+            keytool -genkey -v -keystore ~/.android/debug.keystore -storepass android -alias androiddebugkey \
+              -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
+          fi
+
+      # 1) small APK (R8 shrinking). If R8 trips over something, 2) builds the same APK without shrinking.
+      - name: Build the small APK
+        id: small
+        continue-on-error: true
+        run: gradle :app:assembleRelease -Ppar.minify=true -x lintVitalRelease -x lintVitalAnalyzeRelease --no-daemon --stacktrace
+
+      - name: Fallback build without shrinking
+        if: steps.small.outcome == 'failure'
+        run: gradle :app:assembleRelease -Ppar.minify=false -x lintVitalRelease -x lintVitalAnalyzeRelease --no-daemon --stacktrace
+
+      - name: Name the APK
+        run: |
+          cp app/build/outputs/apk/release/app-release.apk par.apk
+          ls -l par.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: par-apk
+          path: par.apk
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish a GitHub Release (tags only)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: par.apk
+          generate_release_notes: true
+
+      - name: Keep the reports if the build failed
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-reports
+          path: |
+            app/build/reports/
+            app/build/outputs/logs/
+          if-no-files-found: ignore
