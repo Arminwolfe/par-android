@@ -20,8 +20,9 @@ android {
         versionName = "1.1.1"
         // Phones are arm64 today: dropping the other CPU families cuts the APK to roughly a third.
         ndk { abiFilters += listOf("arm64-v8a") }
+        resourceConfigurations += listOf("en", "fa")
     }
-    androidResources { localeFilters += listOf("en", "fa") }
+    
 
     buildTypes {
         release {

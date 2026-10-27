@@ -43,11 +43,11 @@ jobs:
       - name: Build the small APK
         id: small
         continue-on-error: true
-        run: gradle :app:assembleRelease -Ppar.minify=true -x lintVitalRelease -x lintVitalAnalyzeRelease --no-daemon --stacktrace
+        run: gradle :app:assembleRelease -Ppar.minify=true --no-daemon --stacktrace
 
       - name: Fallback build without shrinking
         if: steps.small.outcome == 'failure'
-        run: gradle :app:assembleRelease -Ppar.minify=false -x lintVitalRelease -x lintVitalAnalyzeRelease --no-daemon --stacktrace
+        run: gradle :app:assembleRelease -Ppar.minify=false --no-daemon --stacktrace
 
       - name: Name the APK
         run: |
