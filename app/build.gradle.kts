@@ -16,8 +16,8 @@ android {
         applicationId = "com.par.chat"
         minSdk = 26
         targetSdk = 34
-        versionCode = 3
-        versionName = "1.1.1"
+        versionCode = 4
+        versionName = "1.2.0"
         // Phones are arm64 today: dropping the other CPU families cuts the APK to roughly a third.
         ndk { abiFilters += listOf("arm64-v8a") }
         resourceConfigurations += listOf("en", "fa")

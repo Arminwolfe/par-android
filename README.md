@@ -42,3 +42,10 @@ If the build fails, open the failed step in the log (or download the `build-repo
 - **Notifications and background connection** (foreground service), incoming calls can open over the lock screen.
 - **Calls:** the host shares its TURN server automatically; Settings can override it.
 - **Small APK:** arm64 only, R8 shrinking, only English and Persian resources (about 15-20 MB instead of 60 MB+). If a release build crashes at start (R8), set `isMinifyEnabled = false` in `app/build.gradle.kts` and tell me.
+
+## v1.2.0
+- **Groups and channels:** create a group or a channel, discover and join the network's groups, leave (long-press a chat, or the menu in the chat), delete for everyone (owner/admin). Channels are read-only for members.
+- **Media:** tap a picture to open it full screen with pinch and double-tap zoom; videos open in a player with a seek bar; voice notes have a seek bar and 1x / 1.5x / 2x speed; reactions and pinned messages (long-press a message).
+- **Themes:** Auto / Light / Dark in Settings. Icons replace emoji in the interface (emoji remain only as message content and reactions).
+- **Internet:** invitation links may contain a public `https://` address from the host's internet tunnel; it works behind CGNAT and is encrypted in transit.
+- **Font:** the GitHub build downloads Vazirmatn; without it a bundled fallback font is used.

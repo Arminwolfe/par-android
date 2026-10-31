@@ -27,6 +27,9 @@ class Store(ctx: Context) {
     fun lastSeq(s: Session): Long = p.getLong("seq:${s.networkId}:${s.userId}", 0)
     fun saveSeq(s: Session, v: Long) = p.edit().putLong("seq:${s.networkId}:${s.userId}", v).apply()
 
+    fun theme(): String = p.getString("theme", "auto") ?: "auto"
+    fun saveTheme(v: String) = p.edit().putString("theme", v).apply()
+
     fun ice(): IceConfig = IceConfig(
         p.getString("stun", IceConfig().stun) ?: "",
         p.getString("turnUrl", "") ?: "",

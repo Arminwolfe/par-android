@@ -22,6 +22,12 @@ import java.util.concurrent.TimeUnit
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
+/** `host:port` -> http://host:port ; a full `https://x.y` address (internet tunnel) stays https. */
+fun baseUrl(server: String): String =
+    if (server.startsWith("https://") || server.startsWith("http://")) server.trimEnd('/') else "http://$server"
+
+fun wsUrl(server: String): String = baseUrl(server).replaceFirst("http", "ws")
+
 object Net {
     val json = Json { ignoreUnknownKeys = true; explicitNulls = false; encodeDefaults = true }
 
@@ -69,7 +75,7 @@ object Api {
     suspend fun request(server: String, path: String, method: String = "GET", token: String? = null, body: String? = null): String =
         withContext(Dispatchers.IO) {
             val builder = try {
-                Request.Builder().url("http://$server/api/v1$path")
+                Request.Builder().url("${baseUrl(server)}/api/v1$path")
             } catch (e: IllegalArgumentException) {
                 throw ApiException("invalid_input", "Invalid address")
             }

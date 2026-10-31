@@ -51,7 +51,10 @@ class MainActivity : AppCompatActivity() {
         sharedText = textFrom(intent)
         openConv = intent.getStringExtra(Notifier.EXTRA_CONV)
         val app = application as ParApp
-        setContent { ParTheme { Box(Modifier.fillMaxSize()) { ParRoot(app, sharedText, openConv) { openConv = null } } } }
+        setContent {
+            val mode by app.theme.collectAsState()
+            ParTheme(mode) { Box(Modifier.fillMaxSize()) { ParRoot(app, sharedText, openConv) { openConv = null } } }
+        }
     }
 
     override fun onNewIntent(intent: Intent) {

@@ -30,6 +30,15 @@ jobs:
         with:
           gradle-version: 8.9
 
+      # Real Persian font (Vazirmatn). Optional: if the download fails the bundled fallback font is used.
+      - name: Download the Vazirmatn font
+        continue-on-error: true
+        run: |
+          for w in Regular Bold; do
+            curl -fsSL -o /tmp/v.ttf "https://github.com/rastikerdar/vazirmatn/raw/master/fonts/ttf/Vazirmatn-$w.ttf" || continue
+            if [ "$(stat -c%s /tmp/v.ttf)" -gt 50000 ]; then cp /tmp/v.ttf "app/src/main/res/font/vazirmatn_$(echo $w | tr A-Z a-z).ttf"; echo "font $w installed"; fi
+          done
+
       # The release build is signed with the standard debug key so the APK installs directly.
       - name: Create the signing key
         run: |

@@ -10,8 +10,12 @@ object Invite {
     private val netRegex = Regex("^SP-[$ALPHABET]{4}(-[$ALPHABET]{4}){3}$")
     private val addrRegex = Regex("""^(\[[0-9a-fA-F:]+]|[A-Za-z0-9.-]+):(\d{1,5})$""")
 
+    private val urlRegex = Regex("""^https?://[A-Za-z0-9.-]+(:\d{1,5})?$""")
+
     fun validAddr(a: String): Boolean {
-        val m = addrRegex.matchEntire(a.trim()) ?: return false
+        val t = a.trim()
+        if (urlRegex.matches(t)) return true // https://xyz.trycloudflare.com (internet tunnel)
+        val m = addrRegex.matchEntire(t) ?: return false
         return m.groupValues[2].toInt() in 1..65535
     }
 

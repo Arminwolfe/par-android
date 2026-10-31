@@ -22,10 +22,13 @@ data class UserInfo(
 )
 
 @Serializable
-data class GroupInfo(val id: String, val name: String, val member_count: Long = 0)
+data class GroupInfo(val id: String, val name: String, val member_count: Long = 0, val kind: String = "group", val role: String? = null)
 
 @Serializable
-data class FileInfo(val id: String, val name: String, val mime: String = "", val size: Long = 0, val kind: String = "file")
+data class FileInfo(val id: String, val name: String, val mime: String = "", val size: Long = 0, val kind: String = "file", val duration_ms: Long? = null)
+
+@Serializable
+data class Reaction(val emoji: String, val user_ids: List<String> = emptyList())
 
 @Serializable
 data class Msg(
@@ -41,6 +44,8 @@ data class Msg(
     val edited_at: String? = null,
     val deleted: Boolean = false,
     val file: FileInfo? = null,
+    val reactions: List<Reaction> = emptyList(),
+    val pinned: Boolean = false,
 )
 
 @Serializable

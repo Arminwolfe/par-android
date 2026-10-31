@@ -130,7 +130,7 @@ class ChatEngine(private val app: Application, private val store: Store) {
         val s = session ?: return
         if (!running) return
         val req = try {
-            Request.Builder().url("ws://${s.server}/api/v1/ws").build()
+            Request.Builder().url("${wsUrl(s.server)}/api/v1/ws").build()
         } catch (e: IllegalArgumentException) {
             return
         }
@@ -215,7 +215,13 @@ class ChatEngine(private val app: Application, private val store: Store) {
             }
             "group_added" -> {
                 val g = Net.json.decodeFromJsonElement(GroupInfo.serializer(), o["group"]!!)
-                _state.update { st -> if (st.groups.any { it.id == g.id }) st else st.copy(groups = st.groups + g) }
+                _state.update { st -> st.copy(groups = st.groups.filter { it.id != g.id } + g) }
+            }
+            "group_removed" -> {
+                val id = o["group_id"]?.jsonPrimitive?.content ?: return
+                val key = "g:$id"
+                loaded.remove(key)
+                _state.update { st -> st.copy(groups = st.groups.filter { it.id != id }, msgs = st.msgs - key, unread = st.unread - key, active = if (st.active == key) null else st.active) }
             }
             "error" -> {
                 val code = o["code"]?.jsonPrimitive?.content ?: "unknown"
@@ -319,15 +325,57 @@ class ChatEngine(private val app: Application, private val store: Store) {
         return Net.json.decodeFromString(ListSerializer(Msg.serializer()), Api.request(s.server, "/search?q=${URLEncoder.encode(q, "UTF-8")}", token = s.token))
     }
 
-    suspend fun createGroup(name: String, memberIds: List<String>) {
+    suspend fun createGroup(name: String, memberIds: List<String>, kind: String = "group") {
         val s = session ?: return
         val body = buildJsonObject {
             put("name", name)
+            put("kind", kind)
             put("member_ids", JsonArray(memberIds.map { JsonPrimitive(it) }))
         }.toString()
         val g = Net.json.decodeFromString(GroupInfo.serializer(), Api.request(s.server, "/groups", "POST", s.token, body))
         _state.update { st -> if (st.groups.any { it.id == g.id }) st else st.copy(groups = st.groups + g) }
     }
+
+    suspend fun allGroups(): List<GroupInfo> {
+        val s = session ?: return emptyList()
+        return Net.json.decodeFromString(ListSerializer(GroupInfo.serializer()), Api.request(s.server, "/groups/all", token = s.token))
+    }
+
+    suspend fun joinGroup(id: String) {
+        val s = session ?: return
+        val g = Net.json.decodeFromString(GroupInfo.serializer(), Api.request(s.server, "/groups/$id/join", "POST", s.token, "{}"))
+        _state.update { st -> st.copy(groups = st.groups.filter { it.id != g.id } + g) }
+    }
+
+    suspend fun leaveGroup(id: String) {
+        val s = session ?: return
+        Api.request(s.server, "/groups/$id/leave", "POST", s.token, "{}")
+        _state.update { st -> st.copy(groups = st.groups.filter { it.id != id }, active = if (st.active == "g:$id") null else st.active) }
+    }
+
+    suspend fun deleteGroup(id: String) {
+        val s = session ?: return
+        Api.request(s.server, "/groups/$id", "DELETE", s.token, null)
+        _state.update { st -> st.copy(groups = st.groups.filter { it.id != id }, active = if (st.active == "g:$id") null else st.active) }
+    }
+
+    fun react(id: String, emoji: String) = raw(buildJsonObject { put("type", "react"); put("id", id); put("emoji", emoji) })
+    fun pin(id: String, on: Boolean) = raw(buildJsonObject { put("type", "pin"); put("id", id); put("on", on) })
+
+    /** Channels are read-only for ordinary members. */
+    fun canPost(key: String): Boolean {
+        if (!key.startsWith("g:")) return true
+        val g = _state.value.groups.firstOrNull { it.id == key.drop(2) } ?: return true
+        return g.kind != "channel" || g.role == "owner" || g.role == "admin" || session?.role == "host" || session?.role == "admin"
+    }
+
+    fun canManage(key: String): Boolean {
+        val g = _state.value.groups.firstOrNull { "g:${it.id}" == key } ?: return false
+        return g.role == "owner" || g.role == "admin" || session?.role == "host" || session?.role == "admin"
+    }
+
+    /** Short-lived URL for streaming a video (the player sends the session token itself). */
+    fun streamUrl(fileId: String): String = "${baseUrl(session?.server ?: "")}/api/v1/files/$fileId"
 
     fun typingNames(key: String): List<String> {
         val now = System.currentTimeMillis()
@@ -355,7 +403,7 @@ class ChatEngine(private val app: Application, private val store: Store) {
     }
 
     /** Uploads with progress, then sends a message carrying the file. Throws [ApiException] on refusal. */
-    suspend fun sendFile(convKey: String, name: String, kind: String, size: Long, open: () -> InputStream?) {
+    suspend fun sendFile(convKey: String, name: String, kind: String, size: Long, durationMs: Long? = null, open: () -> InputStream?) {
         val s = session ?: return
         val id = UUID.randomUUID().toString()
         fun progress(p: Float, failed: Boolean = false) = _state.update { st ->
@@ -381,10 +429,11 @@ class ChatEngine(private val app: Application, private val store: Store) {
                 }
             }
         }
-        val req = Request.Builder().url("http://${s.server}/api/v1/files")
+        val req = Request.Builder().url("${baseUrl(s.server)}/api/v1/files")
             .header("Authorization", "Bearer ${s.token}")
             .header("X-File-Name", encodeName(name))
             .header("X-File-Kind", kind)
+            .apply { if (durationMs != null && durationMs > 0) header("X-File-Duration", durationMs.toString()) }
             .post(body).build()
         try {
             val fileId = withContext(Dispatchers.IO) {
@@ -406,13 +455,14 @@ class ChatEngine(private val app: Application, private val store: Store) {
 
     suspend fun sendUri(convKey: String, uri: Uri) {
         val name = displayName(uri)
-        sendFile(convKey, name, "file", fileSize(uri)) { app.contentResolver.openInputStream(uri) }
+        val isVideo = app.contentResolver.getType(uri)?.startsWith("video/") == true
+        sendFile(convKey, name, if (isVideo) "video" else "file", fileSize(uri), null) { app.contentResolver.openInputStream(uri) }
     }
 
     /** Streams a shared file into [out] (a location the user chose). */
     suspend fun downloadTo(fileId: String, out: OutputStream) = withContext(Dispatchers.IO) {
         val s = session ?: throw ApiException("network", "no session")
-        val req = Request.Builder().url("http://${s.server}/api/v1/files/$fileId").header("Authorization", "Bearer ${s.token}").build()
+        val req = Request.Builder().url("${baseUrl(s.server)}/api/v1/files/$fileId").header("Authorization", "Bearer ${s.token}").build()
         val resp = try { Net.client.newCall(req).await() } catch (e: IOException) { throw ApiException("network", e.message ?: "network") }
         resp.use { r ->
             if (!r.isSuccessful) throw parseError(r.code, r.body?.string().orEmpty())

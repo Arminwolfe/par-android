@@ -24,6 +24,10 @@ class ParApp : Application() {
     private val _session = MutableStateFlow<Session?>(null)
     val session: StateFlow<Session?> = _session
 
+    private val _theme = MutableStateFlow("auto")
+    val theme: StateFlow<String> = _theme
+    fun setTheme(v: String) { store.saveTheme(v); _theme.value = v }
+
     private var started = 0
     /** True while one of our screens is visible. Notifications are only needed when it is false. */
     val inForeground: Boolean get() = started > 0
@@ -31,6 +35,7 @@ class ParApp : Application() {
     override fun onCreate() {
         super.onCreate()
         store = Store(this)
+        _theme.value = store.theme()
         engine = ChatEngine(this, store)
         calls = CallManager(this, engine, store)
         Notifier.ensureChannels(this)
@@ -55,9 +60,9 @@ class ParApp : Application() {
                     "$sender · $g"
                 } else sender
                 val text = when {
-                    e.msg.file?.kind == "image" -> "🖼 " + getString(R.string.pv_photo)
-                    e.msg.file?.kind == "voice" -> "🎤 " + getString(R.string.voice_message)
-                    e.msg.file != null -> "📎 " + e.msg.file.name
+                    e.msg.file?.kind == "image" -> getString(R.string.pv_photo)
+                    e.msg.file?.kind == "voice" -> getString(R.string.voice_message)
+                    e.msg.file != null -> e.msg.file.name
                     else -> e.msg.body
                 }
                 Notifier.message(this@ParApp, title, text, e.key)

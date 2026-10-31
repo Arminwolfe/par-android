@@ -3,6 +3,7 @@ package com.par.chat.ui
 import androidx.appcompat.app.AppCompatDelegate
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -23,6 +24,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Call
+import androidx.compose.material.icons.filled.Campaign
+import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material.icons.filled.Chat
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.MoreVert
@@ -143,13 +146,14 @@ private fun NavItem(icon: ImageVector, label: Int, selected: Boolean, badge: Str
     }
 }
 
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
-private fun ConvRow(title: String, preview: String, time: String, online: Boolean?, unread: Int, typing: Boolean, onClick: () -> Unit) {
+private fun ConvRow(title: String, preview: String, time: String, online: Boolean?, unread: Int, typing: Boolean, channel: Boolean = false, onLong: (() -> Unit)? = null, onClick: () -> Unit) {
     Row(
-        Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 9.dp),
+        Modifier.fillMaxWidth().combinedClickable(onClick = onClick, onLongClick = onLong).padding(horizontal = 16.dp, vertical = 9.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        Avatar(title, online, 56.dp)
+        if (channel) Box(Modifier.size(56.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primary.copy(alpha = 0.25f)), contentAlignment = Alignment.Center) { Icon(Icons.Default.Campaign, null, tint = MaterialTheme.colorScheme.primary) } else Avatar(title, online, 56.dp)
         Column(Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(title, Modifier.weight(1f), fontWeight = FontWeight.SemiBold, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -174,7 +178,7 @@ private fun ConvRow(title: String, preview: String, time: String, online: Boolea
 private fun preview(m: Msg?, photo: String, voice: String, deleted: String): String = when {
     m == null -> ""
     m.deleted -> deleted
-    m.file != null && m.body.isEmpty() -> when (m.file.kind) { "image" -> "🖼 $photo"; "voice" -> "🎤 $voice"; else -> "📎 ${m.file.name}" }
+    m.file != null && m.body.isEmpty() -> when (m.file.kind) { "image" -> photo; "voice" -> voice; "video" -> photo; else -> m.file.name }
     else -> m.body
 }
 
@@ -188,6 +192,8 @@ private fun ChatsTab(session: Session, state: ChatState, engine: ChatEngine, onO
     var filter by rememberSaveable { mutableStateOf(Filter.ALL) }
     var showGroupDialog by remember { mutableStateOf(false) }
     var menu by remember { mutableStateOf(false) }
+    var rowMenu by remember { mutableStateOf<String?>(null) }
+    var showDiscover by remember { mutableStateOf(false) }
     val photo = stringResource(R.string.pv_photo)
     val voice = stringResource(R.string.pv_voice)
     val deleted = stringResource(R.string.msg_deleted)
@@ -213,6 +219,7 @@ private fun ChatsTab(session: Session, state: ChatState, engine: ChatEngine, onO
                     IconButton(onClick = { menu = true }) { Icon(Icons.Default.MoreVert, null) }
                     DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                         DropdownMenuItem(text = { Text(stringResource(R.string.new_group)) }, onClick = { menu = false; showGroupDialog = true })
+                        DropdownMenuItem(text = { Text(stringResource(R.string.discover)) }, leadingIcon = { Icon(Icons.Default.Explore, null) }, onClick = { menu = false; showDiscover = true })
                         DropdownMenuItem(text = { Text(stringResource(R.string.leave_network)) }, onClick = { menu = false; onLeave() })
                     }
                 }
@@ -266,10 +273,17 @@ private fun ChatsTab(session: Session, state: ChatState, engine: ChatEngine, onO
                 val rows = (groups + people).sortedWith(compareByDescending<Item> { it.last?.seq ?: 0L }.thenByDescending { it.online == true }.thenBy { it.title })
                 LazyColumn(Modifier.weight(1f), contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 130.dp)) {
                     items(rows, key = { it.key }) { r ->
-                        ConvRow(
-                            r.title, preview(r.last, photo, voice, deleted), r.last?.let { formatListTime(it.created_at) } ?: "", r.online,
-                            state.unread[r.key] ?: 0, engine.typingNames(r.key).isNotEmpty(),
-                        ) { onOpen(r.key) }
+                        Box {
+                            ConvRow(
+                                r.title, preview(r.last, photo, voice, deleted), r.last?.let { formatListTime(it.created_at) } ?: "", r.online,
+                                state.unread[r.key] ?: 0, engine.typingNames(r.key).isNotEmpty(), r.key.startsWith("g:") && state.groups.firstOrNull { "g:${it.id}" == r.key }?.kind == "channel",
+                                onLong = { if (r.key.startsWith("g:") && r.key != "g:general") rowMenu = r.key },
+                            ) { onOpen(r.key) }
+                            DropdownMenu(expanded = rowMenu == r.key, onDismissRequest = { rowMenu = null }) {
+                                DropdownMenuItem(text = { Text(stringResource(if (state.groups.firstOrNull { "g:${it.id}" == r.key }?.kind == "channel") R.string.leave_channel else R.string.leave_group)) }, onClick = { rowMenu = null; scope.launch { try { engine.leaveGroup(r.key.drop(2)) } catch (_: Exception) {} } })
+                                if (engine.canManage(r.key)) DropdownMenuItem(text = { Text(stringResource(R.string.delete_group), color = MaterialTheme.colorScheme.error) }, onClick = { rowMenu = null; scope.launch { try { engine.deleteGroup(r.key.drop(2)) } catch (_: Exception) {} } })
+                            }
+                        }
                     }
                     if (rows.isEmpty()) item { Text(stringResource(R.string.nobody_yet), Modifier.padding(24.dp), color = MaterialTheme.colorScheme.onSurfaceVariant) }
                 }
@@ -280,10 +294,11 @@ private fun ChatsTab(session: Session, state: ChatState, engine: ChatEngine, onO
             shape = CircleShape, modifier = Modifier.align(Alignment.BottomEnd).padding(end = 22.dp, bottom = 104.dp).navigationBarsPadding(),
         ) { Icon(Icons.Default.Edit, stringResource(R.string.new_group)) }
     }
-    if (showGroupDialog) NewGroupDialog(state, session, onDismiss = { showGroupDialog = false }) { name, ids ->
+    if (showGroupDialog) NewGroupDialog(state, session, onDismiss = { showGroupDialog = false }) { name, ids, kind ->
         showGroupDialog = false
-        scope.launch { try { engine.createGroup(name, ids) } catch (_: Exception) {} }
+        scope.launch { try { engine.createGroup(name, ids, kind) } catch (_: Exception) {} }
     }
+    if (showDiscover) DiscoverDialog(engine, onOpen = { showDiscover = false; onOpen(it) }, onDismiss = { showDiscover = false })
 }
 
 fun convTitle(key: String, state: ChatState, generalName: String): String =
@@ -291,7 +306,8 @@ fun convTitle(key: String, state: ChatState, generalName: String): String =
     else state.users[key.drop(2)]?.display_name ?: "?"
 
 @Composable
-private fun NewGroupDialog(state: ChatState, session: Session, onDismiss: () -> Unit, onCreate: (String, List<String>) -> Unit) {
+private fun NewGroupDialog(state: ChatState, session: Session, onDismiss: () -> Unit, onCreate: (String, List<String>, String) -> Unit) {
+    var kind by remember { mutableStateOf("group") }
     var name by remember { mutableStateOf("") }
     var selected by remember { mutableStateOf(setOf<String>()) }
     AlertDialog(
@@ -299,6 +315,11 @@ private fun NewGroupDialog(state: ChatState, session: Session, onDismiss: () -> 
         title = { Text(stringResource(R.string.new_group)) },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState())) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (kind == "group") Button(onClick = {}) { Text(stringResource(R.string.kind_group)) } else OutlinedButton(onClick = { kind = "group" }) { Text(stringResource(R.string.kind_group)) }
+                    if (kind == "channel") Button(onClick = {}) { Text(stringResource(R.string.kind_channel)) } else OutlinedButton(onClick = { kind = "channel" }) { Text(stringResource(R.string.kind_channel)) }
+                }
+                Text(stringResource(if (kind == "channel") R.string.kind_channel_hint else R.string.kind_group_hint), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 OutlinedTextField(name, { name = it.take(64) }, singleLine = true, label = { Text(stringResource(R.string.group_name)) })
                 Spacer(Modifier.height(8.dp))
                 state.users.values.filter { it.id != session.userId }.forEach { u ->
@@ -309,7 +330,7 @@ private fun NewGroupDialog(state: ChatState, session: Session, onDismiss: () -> 
                 }
             }
         },
-        confirmButton = { TextButton(enabled = name.isNotBlank(), onClick = { onCreate(name.trim(), selected.toList()) }) { Text(stringResource(R.string.create)) } },
+        confirmButton = { TextButton(enabled = name.isNotBlank(), onClick = { onCreate(name.trim(), selected.toList(), kind) }) { Text(stringResource(R.string.create)) } },
         dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) } },
     )
 }
@@ -352,6 +373,14 @@ private fun SettingsTab(session: Session, store: Store, onLeave: () -> Unit) {
                 }
             }
         }
+        val app = androidx.compose.ui.platform.LocalContext.current.applicationContext as com.par.chat.ParApp
+        val mode by app.theme.collectAsState()
+        Text(stringResource(R.string.theme), fontWeight = FontWeight.SemiBold)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf("auto" to R.string.theme_auto, "light" to R.string.theme_light, "dark" to R.string.theme_dark).forEach { (m, label) ->
+                if (mode == m) Button(onClick = {}) { Text(stringResource(label)) } else OutlinedButton(onClick = { app.setTheme(m) }) { Text(stringResource(label)) }
+            }
+        }
         Text(stringResource(R.string.language), fontWeight = FontWeight.SemiBold)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(onClick = { AppCompatDelegate.setApplicationLocales(LocaleListCompat.forLanguageTags("fa")) }) { Text("فارسی") }
@@ -376,5 +405,32 @@ private fun SettingsTab(session: Session, store: Store, onLeave: () -> Unit) {
         text = { Text(stringResource(R.string.leave_confirm)) },
         confirmButton = { TextButton(onClick = { confirmLeave = false; onLeave() }) { Text(stringResource(R.string.leave_network), color = MaterialTheme.colorScheme.error) } },
         dismissButton = { TextButton(onClick = { confirmLeave = false }) { Text(stringResource(R.string.cancel)) } },
+    )
+}
+
+@Composable
+private fun DiscoverDialog(engine: ChatEngine, onOpen: (String) -> Unit, onDismiss: () -> Unit) {
+    val scope = rememberCoroutineScope()
+    var list by remember { mutableStateOf<List<com.par.chat.data.GroupInfo>>(emptyList()) }
+    LaunchedEffect(Unit) { list = try { engine.allGroups() } catch (_: Exception) { emptyList() } }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.discover)) },
+        text = {
+            Column(Modifier.verticalScroll(rememberScrollState())) {
+                list.forEach { g ->
+                    Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Icon(if (g.kind == "channel") Icons.Default.Campaign else Icons.Default.Chat, null, tint = MaterialTheme.colorScheme.primary)
+                        Column(Modifier.weight(1f)) {
+                            Text(if (g.id == "general") stringResource(R.string.general_group) else g.name, fontWeight = FontWeight.SemiBold)
+                            Text("${g.member_count} " + stringResource(if (g.kind == "channel") R.string.subscribers else R.string.members), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        if (g.role != null) TextButton(onClick = { onOpen("g:${g.id}") }) { Text(stringResource(R.string.open)) }
+                        else TextButton(onClick = { scope.launch { try { engine.joinGroup(g.id); list = engine.allGroups() } catch (_: Exception) {} } }) { Text(stringResource(R.string.join)) }
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.close)) } },
     )
 }
